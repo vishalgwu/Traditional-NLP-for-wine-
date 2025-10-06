@@ -245,9 +245,6 @@ df['description_clean'] = df['description'].apply(remove_stopwords)
 print(df[['description', 'description_clean']].head(5))
 #%%
 from nltk.stem import WordNetLemmatizer
-nltk.download('wordnet')
-nltk.download('omw-1.4')
-
 lemmatizer = WordNetLemmatizer()
 
 def clean_text(text):
@@ -336,4 +333,185 @@ print(df['colour'].value_counts())
 # check description after cleaning
 print("\nOriginal vs Cleaned description:")
 print(df[['description', 'description_clean']].head(5))
+
+#%%
+
+
+#%%
+
+
+#%%
+# classification models - model buidling
+
+
+# Target variable
+y = df['variety']
+
+# Text column for vectorization
+text_data = df['description_clean']
+
+# Numeric columns
+num_features = df[['price', 'red', 'white', 'rose']]
+
+#%%
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# TF-IDF with LemmaTokenizer (we already defined this above)
+tfidf = TfidfVectorizer(
+    tokenizer=LemmaTokenizer(),
+    ngram_range=(1, 3),   # unigrams, bigrams, trigrams
+    min_df=5,             # ignore very rare words
+    max_df=0.8,           # ignore extremely common words
+    sublinear_tf=True,
+    norm='l2'
+)
+
+# Fit-transform on description text
+X_text = tfidf.fit_transform(text_data)
+print("TF-IDF matrix shape:", X_text.shape)
+#%%
+from sklearn.preprocessing import StandardScaler
+from scipy.sparse import hstack
+
+# Scale numeric features
+scaler = StandardScaler(with_mean=False)
+X_num_scaled = scaler.fit_transform(num_features)
+
+# Combine text + numeric features
+X = hstack([X_text, X_num_scaled])
+print("Final feature matrix shape:", X.shape)
+
+#%%
+
+from sklearn.preprocessing import LabelEncoder
+
+# Initialize encoder
+label_encoder = LabelEncoder()
+
+# Fit and transform target labels
+y_encoded = label_encoder.fit_transform(y)
+
+print("Example mapping:")
+print(dict(zip(label_encoder.classes_[:10], range(10))))
+print("Encoded y shape:", y_encoded.shape)
+
+#%%
+
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+)
+
+
+#%%
+
+print("Train:", X_train.shape, "Test:", X_test.shape)
+#%%
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report
+
+log_reg = LogisticRegression(max_iter=1000, class_weight='balanced', n_jobs=-1)
+log_reg.fit(X_train, y_train)
+
+y_pred_lr = log_reg.predict(X_test)
+print("Logistic Regression Accuracy:", accuracy_score(y_test, y_pred_lr))
+print(classification_report(y_test, y_pred_lr))
+
+#%%
+from sklearn.ensemble import RandomForestClassifier
+
+rf = RandomForestClassifier(n_estimators=200, class_weight='balanced', random_state=42, n_jobs=-1)
+rf.fit(X_train, y_train)
+
+y_pred_rf = rf.predict(X_test)
+print("Random Forest Accuracy:", accuracy_score(y_test, y_pred_rf))
+
+#%%
+from xgboost import XGBClassifier
+
+xgb = XGBClassifier(
+    objective='multi:softmax',
+    num_class=len(df['variety'].unique()),
+    eval_metric='mlogloss',
+    learning_rate=0.1,
+    max_depth=8,
+    n_estimators=250,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    random_state=42
+)
+xgb.fit(X_train, y_train)
+
+y_pred_xgb = xgb.predict(X_test)
+print("XGBoost Accuracy:", accuracy_score(y_test, y_pred_xgb))
+
+
+#%%
+models = {
+    "Logistic Regression": log_reg,
+    "Random Forest": rf,
+    "XGBoost": xgb
+}
+
+from sklearn.metrics import accuracy_score
+
+for name, model in models.items():
+    preds = model.predict(X_test)
+    acc = accuracy_score(y_test, preds)
+    print(f"{name}: {acc:.4f}")
+#%%
+from sklearn.pipeline import Pipeline
+
+xgb_pipe = Pipeline([
+    ('tfidf', TfidfVectorizer(
+        tokenizer=LemmaTokenizer(),
+        ngram_range=(1,3),
+        min_df=5,
+        max_df=0.8,
+        sublinear_tf=True,
+        norm='l2'
+    )),
+    ('clf', XGBClassifier(
+        objective='multi:softmax',
+        num_class=len(df['variety'].unique()),
+        eval_metric='mlogloss',
+        random_state=42
+    ))
+])
+
+#%%
+param_grid = {
+    'clf__learning_rate': [0.05, 0.1, 0.2],
+    'clf__max_depth': [6, 8, 10],
+    'clf__n_estimators': [150, 250, 350],
+    'clf__subsample': [0.8, 1.0],
+    'clf__colsample_bytree': [0.8, 1.0]
+}
+
+grid_search = GridSearchCV(
+    estimator=xgb_pipe,
+    param_grid=param_grid,
+    cv=3,
+    scoring='accuracy',
+    verbose=2,
+    n_jobs=-1
+)
+
+grid_search.fit(df['description_clean'], df['variety'])
+
+print("Best Parameters:", grid_search.best_params_)
+print("Best Score:", grid_search.best_score_)
+#%%
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+
+cm = confusion_matrix(y_test, y_pred_xgb, labels=y.unique())
+plt.figure(figsize=(12,10))
+sns.heatmap(cm, cmap="YlGnBu")
+plt.title("Confusion Matrix - XGBoost")
+plt.xlabel("Predicted")
+plt.ylabel("True")
+plt.show()
+
 
