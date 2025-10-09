@@ -1,3 +1,6 @@
+
+![Wine Classification Visualization](https://github.com/vishalgwu/Traditional-NLP-for-wine-/blob/main/beverages-11-00080-ag.png?raw=true)
+
 #  Traditional Natural Language Processing (NLP) for Wine Classification  
 ## Distinct Algorithms for Predictive Modeling  
 #### Logistic Regression  
